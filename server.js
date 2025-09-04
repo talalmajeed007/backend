@@ -3,6 +3,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const config = require('./config/config');
+require('dotenv').config();
 
 // Import routes
 const { router: authRouter } = require('./routes/auth');

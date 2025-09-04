@@ -2,11 +2,15 @@ const { userStore } = require('../routes/auth');
 const { messageStore } = require('../routes/messages');
 
 const setupSocketHandlers = (io) => {
+  const getDmRoomId = (userA, userB) => {
+    const [a, b] = [userA, userB].sort();
+    return `dm:${a}:${b}`;
+  };
   io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
 
     // Handle user login
-    socket.on('user_login', (data) => {
+    socket.on('user_login', async (data) => {
       const { username } = data;
       
       if (!username || username.trim().length === 0) {
@@ -39,8 +43,12 @@ const setupSocketHandlers = (io) => {
       });
 
       // Send recent messages
-      const recentMessages = messageStore.getRecentMessages(50, 'general');
-      socket.emit('message_history', { messages: recentMessages });
+      try {
+        const recentMessages = await messageStore.getRecentMessages(50, 'general');
+        socket.emit('message_history', { messages: recentMessages });
+      } catch (e) {
+        console.error('Failed to load recent messages', e);
+      }
 
       // Send current online users
       const onlineUsers = userStore.getUsersInRoom('general');
@@ -56,7 +64,7 @@ const setupSocketHandlers = (io) => {
     });
 
     // Handle sending messages
-    socket.on('send_message', (data) => {
+    socket.on('send_message', async (data) => {
       const { content, room = 'general' } = data;
       const user = userStore.getUser(socket.id);
 
@@ -71,7 +79,14 @@ const setupSocketHandlers = (io) => {
       }
 
       // Add message to store
-      const message = messageStore.addMessage(user.username, content.trim(), room);
+      let message;
+      try {
+        message = await messageStore.addMessage(user.username, content.trim(), room);
+      } catch (e) {
+        console.error('Failed to save message', e);
+        socket.emit('error', { message: 'Failed to save message' });
+        return;
+      }
 
       // Broadcast message to all users in the room
       io.to(room).emit('new_message', {
@@ -100,6 +115,50 @@ const setupSocketHandlers = (io) => {
       });
     });
 
+    // Open or join a private DM room between current user and targetUsername
+    socket.on('open_dm', async (data) => {
+      try {
+        const { targetUsername } = data || {};
+        const currentUser = userStore.getUser(socket.id);
+        if (!currentUser) {
+          socket.emit('error', { message: 'User not authenticated' });
+          return;
+        }
+        if (!targetUsername || typeof targetUsername !== 'string') {
+          socket.emit('error', { message: 'targetUsername is required' });
+          return;
+        }
+        const dmRoom = getDmRoomId(currentUser.username, targetUsername);
+
+        // Join caller to DM room without changing their main room
+        socket.join(dmRoom);
+
+        // If target user online, join them as well
+        const targetUser = userStore.getUserByUsername(targetUsername);
+        if (targetUser) {
+          const targetSocket = io.sockets.sockets.get(targetUser.socketId);
+          if (targetSocket) {
+            targetSocket.join(dmRoom);
+            targetSocket.emit('dm_opened', { room: dmRoom, with: currentUser.username });
+          }
+        }
+
+        // Load last 50 messages of DM room
+        try {
+          const history = await messageStore.getRecentMessages(50, dmRoom);
+          socket.emit('dm_history', { room: dmRoom, with: targetUsername, messages: history });
+        } catch (e) {
+          console.error('Failed to load DM history', e);
+        }
+
+        // Notify opener
+        socket.emit('dm_opened', { room: dmRoom, with: targetUsername });
+      } catch (e) {
+        console.error('open_dm error', e);
+        socket.emit('error', { message: 'Failed to open DM' });
+      }
+    });
+
     socket.on('typing_stop', (data) => {
       const { room = 'general' } = data;
       const user = userStore.getUser(socket.id);
@@ -115,7 +174,7 @@ const setupSocketHandlers = (io) => {
     });
 
     // Handle room changes
-    socket.on('join_room', (data) => {
+    socket.on('join_room', async (data) => {
       const { room } = data;
       const user = userStore.getUser(socket.id);
 
@@ -134,8 +193,12 @@ const setupSocketHandlers = (io) => {
       socket.join(room);
 
       // Send room messages
-      const roomMessages = messageStore.getRecentMessages(50, room);
-      socket.emit('message_history', { messages: roomMessages });
+      try {
+        const roomMessages = await messageStore.getRecentMessages(50, room);
+        socket.emit('message_history', { messages: roomMessages });
+      } catch (e) {
+        console.error('Failed to load room messages', e);
+      }
 
       // Send room users
       const roomUsers = userStore.getUsersInRoom(room);

@@ -4,18 +4,23 @@ const { MessageStore } = require('../models/Message');
 
 // Create a shared message store instance
 const messageStore = new MessageStore();
+// Ensure DB table exists
+(async () => {
+  try { await messageStore.init(); } catch (e) { console.error('Failed to init messages table', e); }
+})();
 
 // Get recent messages for a room
-router.get('/:room', (req, res) => {
+router.get('/:room', async (req, res) => {
   const { room } = req.params;
   const { limit = 50 } = req.query;
   
   try {
-    const messages = messageStore.getRecentMessages(parseInt(limit), room);
+    const count = await messageStore.getMessages(room).length;
+    const messages = await messageStore.getRecentMessages(parseInt(limit), room);
     res.json({
       success: true,
       messages,
-      count: messages.length
+      count,
     });
   } catch (error) {
     res.status(500).json({
@@ -27,11 +32,11 @@ router.get('/:room', (req, res) => {
 });
 
 // Get all messages for a room (for debugging/admin purposes)
-router.get('/:room/all', (req, res) => {
+router.get('/:room/all', async (req, res) => {
   const { room } = req.params;
   
   try {
-    const messages = messageStore.getMessages(room);
+    const messages = await messageStore.getMessages(room);
     res.json({
       success: true,
       messages,
@@ -47,7 +52,7 @@ router.get('/:room/all', (req, res) => {
 });
 
 // Add a message (for testing purposes, normally done via Socket.io)
-router.post('/:room', (req, res) => {
+router.post('/:room', async (req, res) => {
   const { room } = req.params;
   const { username, content } = req.body;
   
@@ -59,7 +64,7 @@ router.post('/:room', (req, res) => {
   }
   
   try {
-    const message = messageStore.addMessage(username, content, room);
+    const message = await messageStore.addMessage(username, content, room);
     res.json({
       success: true,
       message: 'Message added successfully',

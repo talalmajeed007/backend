@@ -5,35 +5,7 @@ const { UserStore } = require('../models/User');
 // Create a shared user store instance
 const userStore = new UserStore();
 
-// Login route - simple username-based authentication
-router.post('/login', (req, res) => {
-  const { username } = req.body;
-  
-  if (!username || username.trim().length === 0) {
-    return res.status(400).json({ 
-      success: false, 
-      message: 'Username is required' 
-    });
-  }
-  
-  const trimmedUsername = username.trim();
-  
-  // Check if username is already taken
-  if (userStore.getUserByUsername(trimmedUsername)) {
-    return res.status(409).json({ 
-      success: false, 
-      message: 'Username is already taken' 
-    });
-  }
-  
-  // For now, we'll just validate the username
-  // In a real app, you'd create a session or JWT token here
-  res.json({ 
-    success: true, 
-    message: 'Login successful',
-    username: trimmedUsername
-  });
-});
+
 
 // Check if username is available
 router.get('/check-username/:username', (req, res) => {
